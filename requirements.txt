@@ -1,0 +1,3 @@
+defusedxml
+cssselect2
+pillow
