@@ -6,7 +6,7 @@ from zipfile import PyZipFile
 import cssselect2
 from defusedxml import ElementTree
 
-from core.constants import UNITS
+from .constants import UNITS
 from .resources import res_add_font, res_add_multimedia, MultiMedias, Images
 from .surface import *
 
@@ -40,10 +40,11 @@ class OFDFile(object):
 
     def draw_document(self, doc_num=0):
         document = self.document
+        paths = []
         for page in document.pages:
             surface = Surface(page, os.path.split(self.zf.filename)[-1].strip('.ofd'))
-            surface.draw(page)
-
+            paths.append(surface.draw(page))
+        return paths
 
 class OFDDocument(object):
 
@@ -176,8 +177,10 @@ class Surface(object):
             self.cr.translate(90, 8)
             self.cairo_draw(self.cr, self.page.seal_node)
 
-        cairo_surface.write_to_png(f'{self.filename}_{page.name}.png')
+        path = f'{self.filename}_{page.name}.png'
+        cairo_surface.write_to_png(path)
         cairo_surface.finish()
+        return path
 
 
 CAIRO_TAGS = {

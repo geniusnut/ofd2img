@@ -1,7 +1,7 @@
 import re
 import gi
 
-from core.resources import Fonts, Images
+from .resources import Fonts, Images
 
 gi.require_version("Gtk", "3.0")
 gi.require_version('PangoCairo', '1.0')
