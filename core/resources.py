@@ -1,5 +1,6 @@
 import platform
 import gi
+import os
 
 gi.require_version("Gtk", "3.0")
 gi.require_version('PangoCairo', '1.0')
@@ -77,8 +78,9 @@ class Image(MultiMedia):
             # print('tempdir', tempfile.gettempdir())
             jb2_path = [loc for loc in _zf.namelist() if self.location in loc][0]
 
-            png_path = jb2_path.replace('.jb2', '.png')
-            x_path = _zf.extract(jb2_path)
+            tmp_folder = os.path.basename(_zf.filename).replace('.ofd', '')
+            x_path = _zf.extract(jb2_path, tmp_folder)
+            png_path = x_path.replace('.jb2', '.png')
             if platform.system() == 'Windows':
                 Popen(['./bin/jbig2dec', '-o', png_path, x_path], stdout=PIPE)
             else:

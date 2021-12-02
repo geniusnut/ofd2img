@@ -23,6 +23,8 @@ class OFDFile(object):
 
     def __init__(self, fobj):
         self.zf = fobj if isinstance(fobj, PyZipFile) else PyZipFile(fobj)
+        if getattr(fobj, 'filename', None):
+            self.zf.filename = getattr(fobj, 'filename')
         # for info in self._zf.infolist():
         #     print(info)
         self.node_tree = self.read_node('OFD.xml')
@@ -42,7 +44,7 @@ class OFDFile(object):
         document = self.document
         paths = []
         for page in document.pages:
-            surface = Surface(page, os.path.split(self.zf.filename)[-1].strip('.ofd'))
+            surface = Surface(page, os.path.split(self.zf.filename)[-1].replace('.ofd', ''))
             paths.append(surface.draw(page))
         return paths
 
