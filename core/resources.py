@@ -88,6 +88,11 @@ class Image(MultiMedia):
 
             # print(f'jbig2dec {png_path}', output.stdout.read())
             self.png_location = png_path
+        elif suffix == 'png':
+            png_path = [loc for loc in _zf.namelist() if self.location in loc][0]
+            tmp_folder = os.path.basename(_zf.filename).replace('.ofd', '')
+            x_path = _zf.extract(png_path, tmp_folder)
+            self.png_location = x_path
 
     def get_cairo_surface(self):
         if self.png_location:

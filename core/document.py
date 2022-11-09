@@ -44,12 +44,12 @@ class OFDFile(object):
         document = self.document
         paths = []
         for page in document.pages:
-            surface = Surface(page, os.path.split(self.zf.filename)[-1].replace('.ofd', ''))
+            surface = Surface(page, os.path.split(self.zf.filename)[-1].strip('.ofd'))
             paths.append(surface.draw(page))
         return paths
 
-class OFDDocument(object):
 
+class OFDDocument(object):
     def __init__(self, _zf, node, n=0):
         self.pages = []
         self._zf = _zf
@@ -75,19 +75,30 @@ class OFDDocument(object):
             seal_file = OFDFile(io.BytesIO(_zf.read(f'{self.name}/Signs/Sign_0/SignedValue.dat')))
             seal_node = seal_file.document.pages[0].page_node
 
-        for i, p in enumerate(sorted_pages):
-            document = _zf.read(self.name + '/' + sorted_pages[i].attr['BaseLoc'])
-            tree = ElementTree.fromstring(document)
-            root = cssselect2.ElementWrapper.from_xml_root(tree)
-            page_node = Node(root)
+        annots = None
+        if 'Annotations' in self.node:
+            annots = self.get_node_tree(self.name + '/' + self.node['Annotations'].text)
 
+        for i, p in enumerate(sorted_pages):
+            page_id = p.attr['ID']
+            page_node = self.get_node_tree(self.name + '/' + sorted_pages[i].attr['BaseLoc'])
+            annot_node = None
+            if annots and annots['Page'].attr['PageID'] == page_id:
+                annot_node = self.get_node_tree(self.name + '/Annots/' + annots['Page']['FileLoc'].text)
             tpl_node = None
             if i < len(sorted_tpls):
-                document = _zf.read(self.name + '/' + sorted_tpls[i].attr['BaseLoc'])
-                tree = ElementTree.fromstring(document)
-                root = cssselect2.ElementWrapper.from_xml_root(tree)
-                tpl_node = Node(root)
-            self.pages.append(OFDPage(self, f'Page_{i}', page_node, tpl_node, seal_node if i == 0 else None))
+                tpl_node = self.get_node_tree(self.name + '/' + sorted_tpls[i].attr['BaseLoc'])
+
+            self.pages.append(OFDPage(self, f'Page_{i}', page_id, page_node, tpl_node, seal_node if i == 0 else None,
+                                      annot_node=annot_node))
+
+    def get_node_tree(self, location):
+        if location not in self._zf.namelist():
+            return None
+        document = self._zf.read(location)
+        tree = ElementTree.fromstring(document)
+        root = cssselect2.ElementWrapper.from_xml_root(tree)
+        return Node(root)
 
     def _parse_res(self):
         if 'DocumentRes' in self.node['CommonData']:
@@ -115,8 +126,9 @@ class OFDDocument(object):
 
 class OFDPage(object):
 
-    def __init__(self, parent: OFDDocument, name, page_node, tpl_node, seal_node):
+    def __init__(self, parent: OFDDocument, name, page_id, page_node, tpl_node, seal_node=None, annot_node=None):
         self.parent = parent
+        self.page_id = page_id
         self.name = f'{parent.name}_{name}'
         self.physical_box = self.parent.physical_box
         if 'Area' in page_node and 'PhysicalBox' in page_node['Area']:
@@ -124,6 +136,7 @@ class OFDPage(object):
         self.tpl_node = tpl_node
         self.page_node = page_node
         self.seal_node = seal_node
+        self.annot_node = annot_node
 
 
 class Surface(object):
@@ -148,6 +161,15 @@ class Surface(object):
                 print(traceback.format_exc())
                 pass
             return  # no need to go deeper
+        if node.tag == 'Appearance':
+            boundary = [float(i) for i in node.attr['Boundary'].split(' ')]
+            cr.save()
+            cr.translate(boundary[0], boundary[1])
+            for child in node.children:
+                # Only draw known tags
+                self.cairo_draw(cr, child)
+            cr.restore()
+            return
 
         for child in node.children:
             # Only draw known tags
@@ -159,7 +181,7 @@ class Surface(object):
         physical_height = self.page.physical_box[3]
         width = int(physical_width * self.pixels_per_mm)
         height = int(physical_height * self.pixels_per_mm)
-        print(f'create cairo surface, width: {width}, height: {height}')
+        # print(f'create cairo surface, width: {width}, height: {height}')
         cairo_surface = cairo.ImageSurface(cairo.FORMAT_ARGB32, width, height)
 
         self.cr = cairo.Context(cairo_surface)
@@ -171,6 +193,9 @@ class Surface(object):
 
         self.cairo_draw(self.cr, self.page.tpl_node)
         self.cairo_draw(self.cr, self.page.page_node)
+
+        if self.page.annot_node:
+            self.cairo_draw(self.cr, self.page.annot_node)
 
         # self.cr.scale(self.pixels_per_mm, self.pixels_per_mm)
         # draw StampAnnot

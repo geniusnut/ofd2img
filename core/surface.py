@@ -120,7 +120,7 @@ def _trans_Delta(elements, scale=SCALE_192):
     return parsed
 
 
-def cairo_path(cr, node):
+def cairo_path(cr: cairo.Context, node):
     lineWidth = float(node.attr['LineWidth']) if 'LineWidth' in node.attr else 0.5
     boundary = [float(i) for i in node.attr['Boundary'].split(' ')]
     ctm = None
@@ -153,7 +153,7 @@ def cairo_path(cr, node):
     cr.restore()
 
 
-def cairo_text(cr, node):
+def cairo_text(cr: cairo.Context, node):
     boundary = [float(i) for i in node.attr['Boundary'].split(' ')]
     ctm = None
     if 'CTM' in node.attr:
@@ -220,7 +220,7 @@ def cairo_text(cr, node):
     pass
 
 
-def cairo_image(cr, node):
+def cairo_image(cr: cairo.Context, node):
     resource_id = node.attr['ResourceID']
     boundary = [float(i) for i in node.attr['Boundary'].split(' ')]
     ctm = None
@@ -230,7 +230,8 @@ def cairo_image(cr, node):
 
     cr.save()
     x, y = boundary[0], boundary[1]
-    width, height = cr.get_matrix().transform_point(boundary[2], boundary[3])
+    width = cr.get_matrix().xx * boundary[2]
+    height = cr.get_matrix().yy * boundary[3]
     # print('cairo image ctm:', ctm)  # ctm用不到
     x, y = cr.get_matrix().transform_point(x, y)
 
