@@ -55,7 +55,10 @@ class OFDDocument(object):
         self._zf = _zf
         self.name = f'Doc_{n}'
         self.node = node
-        self.physical_box = [float(i) for i in node['CommonData']['PageArea']['PhysicalBox'].text.split(' ')]
+        try:
+            self.physical_box = [float(i) for i in node['CommonData']['PageArea']['PhysicalBox'].text.split(' ')]
+        except:
+            self.physical_box = [0.0, 0.0, 210.0, 140.0]
         self._parse_res()
         # print('Resources:', Fonts, Images)
         # assert len(node['CommonData']['TemplatePage']) == len(node['Pages']['Page'])
