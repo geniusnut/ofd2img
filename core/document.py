@@ -7,7 +7,7 @@ import cssselect2
 from defusedxml import ElementTree
 
 from .constants import UNITS
-from .resources import res_add_font, res_add_multimedia, MultiMedias, Images
+from .resources import res_add_font, res_add_multimedia, res_add_drawparams, MultiMedias, Images
 from .surface import *
 
 
@@ -86,8 +86,13 @@ class OFDDocument(object):
             page_id = p.attr['ID']
             page_node = self.get_node_tree(self.name + '/' + sorted_pages[i].attr['BaseLoc'])
             annot_node = None
-            if annots and annots['Page'].attr['PageID'] == page_id:
-                annot_node = self.get_node_tree(self.name + '/Annots/' + annots['Page']['FileLoc'].text)
+            if annots:
+                if isinstance(annots['Page'], list):
+                    annot_page = next(iter([page for page in annots['Page'] if page.attr['PageID'] == page_id]), None)
+                    if annot_page:
+                        annot_node = self.get_node_tree(self.name + '/Annots/' + annot_page['FileLoc'].text)
+                elif isinstance(annots['Page'], Node) and annots['Page'].attr['PageID'] == page_id:
+                    annot_node = self.get_node_tree(self.name + '/Annots/' + annots['Page']['FileLoc'].text)
             tpl_node = None
             if i < len(sorted_tpls):
                 tpl_node = self.get_node_tree(self.name + '/' + sorted_tpls[i].attr['BaseLoc'])
@@ -173,6 +178,13 @@ class Surface(object):
                 self.cairo_draw(cr, child)
             cr.restore()
             return
+        elif node.tag == 'Layer':
+            try:
+                cairo_layer(node)
+            except Exception as e:
+                # Error in point parsing, do nothing
+                print_node_recursive(node)
+                print(traceback.format_exc())
 
         for child in node.children:
             # Only draw known tags
@@ -222,6 +234,7 @@ CAIRO_TAGS = {
 RESOURCE_TAGS = {
     'Font': res_add_font,
     'MultiMedia': res_add_multimedia,
+    'DrawParams': res_add_drawparams,
 }
 
 

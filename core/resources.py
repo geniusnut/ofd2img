@@ -12,6 +12,7 @@ from subprocess import Popen, PIPE
 Fonts = {}
 MultiMedias = {}
 Images = {}
+DrawParams = {}
 font_map = PangoCairo.font_map_get_default()
 Cairo_Font_Family_Names = [f.get_name() for f in font_map.list_families()]
 # print(Cairo_Font_Family_Names)
@@ -103,6 +104,24 @@ class Image(MultiMedia):
         return f'Image ID:{self.ID}, Format:{self.Format}'
 
 
+class DrawParam(object):
+    def __init__(self, node=None):
+        self.ID = node.attr.get('ID', None) if node else None
+        self.line_width = node.attr.get('LineWidth', 0.25) if node else 0.25
+
+        self.stroke_color = next(iter(
+            [[float(i) / 256. for i in child.attr['Value'].split(' ')]
+             for child in node.children if child.tag == 'StrokeColor' and 'Value' in child.attr]
+        ), [0, 0, 0]) if node else [0, 0, 0]
+        self.fill_color = next(iter(
+            [[float(i) / 256. for i in child.attr['Value'].split(' ')]
+             for child in node.children if child.tag == 'FillColor' and 'Value' in child.attr]
+        ), [0, 0, 0]) if node else [0, 0, 0]
+        # print(self)
+
+    def __repr__(self):
+        return f'ID[{self.ID}], line_width: {self.line_width}, stroke{self.stroke_color}, fill{self.fill_color}'
+
 def res_add_font(node, _zf):
     Fonts[node.attr['ID']] = Font(node.attr)
 
@@ -111,3 +130,8 @@ def res_add_multimedia(node, _zf):
     if node.attr['Type'] == 'Image':
         image = Image(node, _zf)
         Images[node.attr['ID']] = image
+
+
+def res_add_drawparams(node, _zf):
+    for draw_param in node.children:
+        DrawParams[draw_param.attr['ID']] = DrawParam(draw_param)

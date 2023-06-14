@@ -1,7 +1,7 @@
 import re
 import gi
 
-from .resources import Fonts, Images
+from .resources import Fonts, Images, DrawParams, DrawParam
 
 gi.require_version("Gtk", "3.0")
 gi.require_version('PangoCairo', '1.0')
@@ -120,18 +120,33 @@ def _trans_Delta(elements, scale=SCALE_192):
     return parsed
 
 
+layer_draw: DrawParam = DrawParam()
+
+
+def cairo_layer(node):
+    global layer_draw
+    layer_drawparam = node.attr.get('DrawParam', None)
+    if layer_drawparam in DrawParams:
+        layer_draw = DrawParams.get(layer_drawparam)
+        print(layer_draw)
+    else:
+        layer_draw = DrawParam()
+
+
 def cairo_path(cr: cairo.Context, node):
-    lineWidth = float(node.attr['LineWidth']) if 'LineWidth' in node.attr else 0.5
+    lineWidth = layer_draw.line_width if layer_draw.line_width else 0.5
+    lineWidth = float(node.attr['LineWidth']) if 'LineWidth' in node.attr else lineWidth
     boundary = [float(i) for i in node.attr['Boundary'].split(' ')]
     ctm = None
     if 'CTM' in node.attr:
         ctm = [float(i) for i in node.attr['CTM'].split(' ')]
-    fillColor = [0, 0, 0]
-    if 'FillColor' in node:
-        fillColor = [float(i) / 255. for i in node['FillColor'].attr['Value'].split(' ')]
-    strokeColor = [0, 0, 0]
-    if 'StrokeColor' in node:
-        strokeColor = [float(i) / 255. for i in node['StrokeColor'].attr['Value'].split(' ')]
+    fillColor = layer_draw.fill_color
+    if 'FillColor' in node and 'Value' in node.attr:
+        fillColor = [float(i) / 256. for i in node['FillColor'].attr['Value'].split(' ')]
+    using_fill_color = sum(fillColor) > 0.0
+    strokeColor = layer_draw.stroke_color
+    if 'StrokeColor' in node and 'Value' in node.attr:
+        strokeColor = [float(i) / 256. for i in node['StrokeColor'].attr['Value'].split(' ')]
     # print('draw path', boundary, fillColor, strokeColor)
     cr.save()
     if ctm:
@@ -146,7 +161,10 @@ def cairo_path(cr: cairo.Context, node):
         cr.translate(boundary[0], boundary[1])
 
     AbbreviatedData = node['AbbreviatedData'].text
-    cr.set_source_rgba(*strokeColor)
+    if using_fill_color:
+        cr.set_source_rgba(*fillColor)
+    else:
+        cr.set_source_rgba(*strokeColor)
     cr.set_line_width(lineWidth)
     _cairo_draw_path(cr, boundary, AbbreviatedData)
     cr.stroke()
@@ -161,12 +179,12 @@ def cairo_text(cr: cairo.Context, node):
     font_id = node.attr['Font']
     font_family = get_font_from_id(font_id).get_font_family()
     font_size = float(node.attr['Size']) / 1.3
-    fillColor = [0, 0, 0]
-    if 'FillColor' in node:
+    fillColor = layer_draw.fill_color
+    if 'FillColor' in node and 'Value' in node['FillColor'].attr:
         fillColor = [float(i) / 255. for i in node['FillColor'].attr['Value'].split(' ')]
 
-    strokeColor = [0, 0, 0]
-    if 'StrokeColor' in node:
+    strokeColor = layer_draw.stroke_color
+    if 'StrokeColor' in node and 'Value' in node['StrokeColor'].attr:
         strokeColor = [float(i) / 255. for i in node['StrokeColor'].attr['Value'].split(' ')]
 
     TextCode = node['TextCode']
@@ -178,14 +196,18 @@ def cairo_text(cr: cairo.Context, node):
     if 'DeltaX' in TextCode.attr:
         deltaX = _trans_Delta(TextCode.attr['DeltaX'].split(' '), scale=1)
     if deltaX and len(deltaX) + 1 != len(text):
-        # raise Exception('TextCode DeltaX 与字符个数不符')
+        # raise Exception(f'{text} TextCode DeltaX 与字符个数不符')
         deltaX = deltaX[:len(text)-1]
+    if deltaX and len(deltaX) < len(text) - 1:
+        deltaX.extend([deltaX[-1]] * (len(text) - 1 - len(deltaX)))
 
     if 'DeltaY' in TextCode.attr:
         deltaY = _trans_Delta(TextCode.attr['DeltaY'].split(' '), scale=1)
     if deltaY and len(deltaY) + 1 != len(text):
-        # raise Exception('TextCode DeltaY 与字符个数不符')
+        # raise Exception(f'{text} TextCode DeltaY 与字符个数不符')
         deltaY = deltaY[:len(text)-1]
+    if deltaY and len(deltaY) < len(text) - 1:
+        deltaY.extend([deltaY[-1]] * (len(text) - 1 - len(deltaY)))
 
     X = float(TextCode.attr['X'])
     Y = float(TextCode.attr['Y'])
