@@ -94,7 +94,14 @@ class OFDDocument(object):
                 elif isinstance(annots['Page'], Node) and annots['Page'].attr['PageID'] == page_id:
                     annot_node = self.get_node_tree(self.name + '/Annots/' + annots['Page']['FileLoc'].text)
             tpl_node = None
-            if i < len(sorted_tpls):
+            try:
+                # get tpl_node from ID
+                tpl = [tpl for tpl in sorted_tpls if page_node['Template'].attr['TemplateID'] == tpl.attr['ID']][0]
+                tpl_node = self.get_node_tree(self.name + '/' + tpl.attr['BaseLoc'])
+            except:
+                pass
+            # fallback using sorted one.
+            if tpl_node is None and i < len(sorted_tpls):
                 tpl_node = self.get_node_tree(self.name + '/' + sorted_tpls[i].attr['BaseLoc'])
 
             self.pages.append(OFDPage(self, f'Page_{i}', page_id, page_node, tpl_node, seal_node if i == 0 else None,
