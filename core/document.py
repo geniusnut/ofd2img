@@ -1,7 +1,7 @@
 import io
 import os
 import traceback
-from zipfile import PyZipFile
+from zipfile import PyZipFile, BadZipFile
 
 import cssselect2
 from defusedxml import ElementTree
@@ -75,8 +75,11 @@ class OFDDocument(object):
 
         seal_node = None
         if f'{self.name}/Signs/Sign_0/SignedValue.dat' in _zf.namelist():
-            seal_file = OFDFile(io.BytesIO(_zf.read(f'{self.name}/Signs/Sign_0/SignedValue.dat')))
-            seal_node = seal_file.document.pages[0].page_node
+            try:
+                seal_file = OFDFile(io.BytesIO(_zf.read(f'{self.name}/Signs/Sign_0/SignedValue.dat')))
+                seal_node = seal_file.document.pages[0].page_node
+            except BadZipFile as _:
+                print(f'BadZipFile: {self.name}/Signs/Sign_0/SignedValue.dat')
 
         annots = None
         if 'Annotations' in self.node:
