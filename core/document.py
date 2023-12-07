@@ -216,7 +216,8 @@ class Surface(object):
         self.cr.paint()
         self.cr.move_to(0, 0)
 
-        self.cairo_draw(self.cr, self.page.tpl_node)
+        if self.page.tpl_node:
+            self.cairo_draw(self.cr, self.page.tpl_node)
         self.cairo_draw(self.cr, self.page.page_node)
 
         if self.page.annot_node:
