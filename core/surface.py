@@ -1,3 +1,4 @@
+from math import pi, sin, cos, hypot, atan2, radians
 import re
 import gi
 
@@ -17,6 +18,17 @@ FLOAT_RE = re.compile(r"[-+]?[0-9]*\.?[0-9]+(?:[eE][-+]?[0-9]+)?")
 font_map = PangoCairo.font_map_get_default()
 print([f.get_name() for f in font_map.list_families() if
        'song' in f.get_name().lower() or 'cour' in f.get_name().lower() or 'kai' in f.get_name().lower()])
+
+
+# https://github.com/Kozea/CairoSVG/blob/main/cairosvg/helpers.py#L95
+def rotate(x, y, angle):
+    """Rotate a point of an angle around the origin point."""
+    return x * cos(angle) - y * sin(angle), y * cos(angle) + x * sin(angle)
+
+
+def point_angle(cx, cy, px, py):
+    """Return angle between x axis and point knowing given center."""
+    return atan2(py - cy, px - cx)
 
 
 def _tokenize_path(pathdef):
@@ -70,18 +82,19 @@ def _cairo_draw_path(cr, boundary, path):
         if elements[-1] in COMMANDS:
             command = elements.pop()
         else:
-            raise Exception('操作符违法')
+            raise Exception(f'操作符 {elements[-1]} 违法')
 
         if command == 'M':
             x = float(elements.pop())
             y = float(elements.pop())
             cr.move_to(x, y)
-
+            current_pos = (x, y)
         elif command == 'L':
             x = float(elements.pop())
             y = float(elements.pop())
             # pos = (x_start + x, y_start + y)
             cr.line_to(x, y)
+            current_pos = (x, y)
             # draw.line(current_pos + pos, fill=fillColor, width=lineWidth)
 
         elif command == 'B':
@@ -92,15 +105,66 @@ def _cairo_draw_path(cr, boundary, path):
             x3 = float(elements.pop())
             y3 = float(elements.pop())
             cr.curve_to(x1, y1, x2, y2, x3, y3)
+            current_pos = (x3, y3)
         elif command == 'A':
-            # cr.arc()
-            pass
+            # rx ry x-axis-rotation large-arc-flag sweep-flag x y
+            # A 1.875 1.875 90 0 1 0.125 2
+            # GBT_33190-2016_电子文件存储与交换格式版式文档.pdf #9.3.5
+            # https://github.com/Kozea/CairoSVG/blob/main/cairosvg/path.py#L209
+            ellipse_x, ellipse_y, rotation_angle, large, sweep, x3, y3 = [elements.pop() for _ in range(7)]
+            rx, ry = float(ellipse_x), float(ellipse_y)
+            rotation = radians(float(rotation_angle))
+            large, sweep = int(large), int(sweep)
+            x1, y1 = current_pos
+            radius = rx
+            radii_ratio = ry / rx
+            x3, y3 = float(x3) - x1, float(y3) - y1
+
+            xe, ye = rotate(x3, y3, -rotation)
+            ye /= radii_ratio
+            # Find the angle between the second point and the x axis
+            angle = point_angle(0, 0, xe, ye)
+
+            # Put the second point onto the x axis
+            xe = hypot(xe, ye)
+            ye = 0
+
+            # Update the x radius if it is too small
+            rx = max(rx, xe / 2)
+
+            # Find one circle centre
+            xc = xe / 2
+            yc = (rx ** 2 - xc ** 2) ** .5
+
+            # Choose between the two circles according to flags
+            if not (large ^ sweep):
+                yc = -yc
+
+            # Define the arc sweep
+            arc = cr.arc if sweep else cr.arc_negative
+
+            # Put the second point and the center back to their positions
+            xe, ye = rotate(xe, 0, angle)
+            xc, yc = rotate(xc, yc, angle)
+
+            # Find the drawing angles
+            angle1 = point_angle(xc, yc, 0, 0)
+            angle2 = point_angle(xc, yc, xe, ye)
+
+            cr.save()
+            cr.translate(x1, y1)
+            cr.rotate(rotation)
+            cr.scale(1, radii_ratio)
+            arc(xc, yc, rx, angle1, angle2)
+            cr.restore()
+            current_pos = (current_pos[0] + x3, current_pos[1] + y3)
         elif command == 'Q':
             x1 = float(elements.pop())
             y1 = float(elements.pop())
             x2 = float(elements.pop())
             y2 = float(elements.pop())
             cr.curve_to(x1, y1, x1, y1, x2, y2)
+            current_pos = (x2, y2)
         elif command == 'C':
             pass
 

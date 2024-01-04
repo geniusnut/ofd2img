@@ -180,7 +180,7 @@ class Surface(object):
                 pass
             return  # no need to go deeper
         if node.tag == 'Appearance':
-            boundary = [float(i) for i in node.attr['Boundary'].split(' ')]
+            boundary = [float(i) for i in node.attr['Boundary'].split(' ')] if 'Boundary' in node.attr else [0, 0, 0, 0]
             cr.save()
             cr.translate(boundary[0], boundary[1])
             for child in node.children:
