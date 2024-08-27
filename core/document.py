@@ -59,7 +59,6 @@ class OFDFile(object):
         for i, page in enumerate(document.pages):
             surface = Surface(page, os.path.split(self.zf.filename)[-1].strip(".ofd"))
             paths.append(surface.draw(page, destination / Path(f"{surface.filename}_{i}.png")))
-        shutil.rmtree(self.document.work_folder, ignore_errors=True)
         return paths
 
 
@@ -67,7 +66,6 @@ class OFDDocument(object):
     def __init__(self, _zf, node, n=0):
         self.pages = []
         self._zf = _zf
-        self.work_folder = tempfile.mkdtemp()
         self.name = f"Doc_{n}"
         self.node = node
         try:
