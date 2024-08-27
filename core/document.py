@@ -175,7 +175,7 @@ class OFDDocument(object):
     def _parse_res_node(self, node):
         if node.tag in RESOURCE_TAGS:
             try:
-                RESOURCE_TAGS[node.tag](node, self._zf, self.work_folder)
+                RESOURCE_TAGS[node.tag](node, self._zf)
             except Exception as e:
                 # Error in point parsing, do nothing
                 print_node_recursive(node)
