@@ -1,16 +1,19 @@
+import os
 import platform
+
 import gi
 
 gi.require_version("Gtk", "3.0")
 gi.require_version("PangoCairo", "1.0")
-from gi.repository import PangoCairo
-import cairo
-from subprocess import Popen, PIPE
+from subprocess import PIPE, Popen
 
+import cairo
+from gi.repository import PangoCairo
 
 Fonts = {}
 MultiMedias = {}
 Images = {}
+DrawParams = {}
 font_map = PangoCairo.font_map_get_default()
 Cairo_Font_Family_Names = [f.get_name() for f in font_map.list_families()]
 # print(Cairo_Font_Family_Names)
@@ -86,13 +89,17 @@ class Image(MultiMedia):
 
             x_path = _zf.extract(jb2_path, path=work_folder)
             png_path = x_path.replace(".jb2", ".png")
-
             if platform.system() == "Windows":
                 Popen(["./bin/jbig2dec", "-o", png_path, x_path], stdout=PIPE)
             else:
                 Popen(["jbig2dec", "-o", png_path, x_path], stdout=PIPE)
 
             self.png_location = png_path
+        elif suffix == "png":
+            png_path = [loc for loc in _zf.namelist() if self.location in loc][0]
+            tmp_folder = os.path.basename(_zf.filename).replace(".ofd", "")
+            x_path = _zf.extract(png_path, tmp_folder)
+            self.png_location = x_path
 
     def get_cairo_surface(self):
         if self.png_location:
@@ -103,11 +110,55 @@ class Image(MultiMedia):
         return f"Image ID:{self.ID}, Format:{self.Format}"
 
 
-def res_add_font(node, _zf, work_folder):
+class DrawParam(object):
+    def __init__(self, node=None):
+        self.ID = node.attr.get("ID", None) if node else None
+        self.line_width = node.attr.get("LineWidth", 0.25) if node else 0.25
+
+        self.stroke_color = (
+            next(
+                iter(
+                    [
+                        [float(i) / 256.0 for i in child.attr["Value"].split(" ")]
+                        for child in node.children
+                        if child.tag == "StrokeColor" and "Value" in child.attr
+                    ]
+                ),
+                [0, 0, 0],
+            )
+            if node
+            else [0, 0, 0]
+        )
+        self.fill_color = (
+            next(
+                iter(
+                    [
+                        [float(i) / 256.0 for i in child.attr["Value"].split(" ")]
+                        for child in node.children
+                        if child.tag == "FillColor" and "Value" in child.attr
+                    ]
+                ),
+                [0, 0, 0],
+            )
+            if node
+            else [0, 0, 0]
+        )
+        # print(self)
+
+    def __repr__(self):
+        return f"ID[{self.ID}], line_width: {self.line_width}, stroke{self.stroke_color}, fill{self.fill_color}"
+
+
+def res_add_font(node, _zf):
     Fonts[node.attr["ID"]] = Font(node.attr)
 
 
-def res_add_multimedia(node, _zf, work_folder):
+def res_add_multimedia(node, _zf):
     if node.attr["Type"] == "Image":
-        image = Image(node, _zf, work_folder)
+        image = Image(node, _zf)
         Images[node.attr["ID"]] = image
+
+
+def res_add_drawparams(node, _zf):
+    for draw_param in node.children:
+        DrawParams[draw_param.attr["ID"]] = DrawParam(draw_param)
