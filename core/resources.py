@@ -79,7 +79,7 @@ class MultiMedia(object):
 
 
 class Image(MultiMedia):
-    def __init__(self, node, _zf, work_folder: str):
+    def __init__(self, node, _zf):
         super().__init__(node)
         self.png_location = None
         self.Format = node.attr["Format"] if "Format" in node.attr else ""
@@ -87,7 +87,8 @@ class Image(MultiMedia):
         if suffix == "jb2":
             jb2_path = [loc for loc in _zf.namelist() if self.location in loc][0]
 
-            x_path = _zf.extract(jb2_path, path=work_folder)
+            tmp_folder = os.path.basename(_zf.filename).replace(".ofd", "")
+            x_path = _zf.extract(jb2_path, tmp_folder)
             png_path = x_path.replace(".jb2", ".png")
             if platform.system() == "Windows":
                 Popen(["./bin/jbig2dec", "-o", png_path, x_path], stdout=PIPE)
