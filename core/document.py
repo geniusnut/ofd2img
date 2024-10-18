@@ -4,6 +4,7 @@ import shutil
 import tempfile
 import traceback
 from pathlib import Path
+from typing import Optional
 from zipfile import BadZipFile, PyZipFile
 
 import cssselect2
