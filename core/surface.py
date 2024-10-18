@@ -1,12 +1,14 @@
 import re
+from math import atan2, cos, hypot, pi, radians, sin
+
 import gi
 
-from .resources import Fonts, Images
+from .resources import DrawParam, DrawParams, Fonts, Images
 
 gi.require_version("Gtk", "3.0")
 gi.require_version("PangoCairo", "1.0")
-from gi.repository import Pango, PangoCairo
 import cairo
+from gi.repository import Pango, PangoCairo
 
 SCALE_192 = 7.559
 SCALE_128 = 5.039
@@ -24,6 +26,17 @@ font_map = PangoCairo.font_map_get_default()
 #         or "kai" in f.get_name().lower()
 #     ]
 # )
+
+
+# https://github.com/Kozea/CairoSVG/blob/main/cairosvg/helpers.py#L95
+def rotate(x, y, angle):
+    """Rotate a point of an angle around the origin point."""
+    return x * cos(angle) - y * sin(angle), y * cos(angle) + x * sin(angle)
+
+
+def point_angle(cx, cy, px, py):
+    """Return angle between x axis and point knowing given center."""
+    return atan2(py - cy, px - cx)
 
 
 def _tokenize_path(pathdef):
@@ -79,18 +92,19 @@ def _cairo_draw_path(cr, boundary, path):
         if elements[-1] in COMMANDS:
             command = elements.pop()
         else:
-            raise Exception("操作符违法")
+            raise Exception(f"操作符 {elements[-1]} 违法")
 
         if command == "M":
             x = float(elements.pop())
             y = float(elements.pop())
             cr.move_to(x, y)
-
+            current_pos = (x, y)
         elif command == "L":
             x = float(elements.pop())
             y = float(elements.pop())
             # pos = (x_start + x, y_start + y)
             cr.line_to(x, y)
+            current_pos = (x, y)
             # draw.line(current_pos + pos, fill=fillColor, width=lineWidth)
 
         elif command == "B":
@@ -101,15 +115,68 @@ def _cairo_draw_path(cr, boundary, path):
             x3 = float(elements.pop())
             y3 = float(elements.pop())
             cr.curve_to(x1, y1, x2, y2, x3, y3)
+            current_pos = (x3, y3)
         elif command == "A":
-            # cr.arc()
-            pass
+            # rx ry x-axis-rotation large-arc-flag sweep-flag x y
+            # A 1.875 1.875 90 0 1 0.125 2
+            # GBT_33190-2016_电子文件存储与交换格式版式文档.pdf #9.3.5
+            # https://github.com/Kozea/CairoSVG/blob/main/cairosvg/path.py#L209
+            ellipse_x, ellipse_y, rotation_angle, large, sweep, x3, y3 = [
+                elements.pop() for _ in range(7)
+            ]
+            rx, ry = float(ellipse_x), float(ellipse_y)
+            rotation = radians(float(rotation_angle))
+            large, sweep = int(large), int(sweep)
+            x1, y1 = current_pos
+            radius = rx
+            radii_ratio = ry / rx
+            x3, y3 = float(x3) - x1, float(y3) - y1
+
+            xe, ye = rotate(x3, y3, -rotation)
+            ye /= radii_ratio
+            # Find the angle between the second point and the x axis
+            angle = point_angle(0, 0, xe, ye)
+
+            # Put the second point onto the x axis
+            xe = hypot(xe, ye)
+            ye = 0
+
+            # Update the x radius if it is too small
+            rx = max(rx, xe / 2)
+
+            # Find one circle centre
+            xc = xe / 2
+            yc = (rx**2 - xc**2) ** 0.5
+
+            # Choose between the two circles according to flags
+            if not (large ^ sweep):
+                yc = -yc
+
+            # Define the arc sweep
+            arc = cr.arc if sweep else cr.arc_negative
+
+            # Put the second point and the center back to their positions
+            xe, ye = rotate(xe, 0, angle)
+            xc, yc = rotate(xc, yc, angle)
+
+            # Find the drawing angles
+            angle1 = point_angle(xc, yc, 0, 0)
+            angle2 = point_angle(xc, yc, xe, ye)
+
+            cr.save()
+            cr.translate(x1, y1)
+            cr.rotate(rotation)
+            cr.scale(1, radii_ratio)
+            arc(xc, yc, rx, angle1, angle2)
+            cr.restore()
+            current_pos = (current_pos[0] + x3, current_pos[1] + y3)
         elif command == "Q":
             x1 = float(elements.pop())
             y1 = float(elements.pop())
             x2 = float(elements.pop())
             y2 = float(elements.pop())
             cr.curve_to(x1, y1, x1, y1, x2, y2)
+            current_pos = (x2, y2)
         elif command == "C":
             pass
 
@@ -129,22 +196,33 @@ def _trans_Delta(elements, scale=SCALE_192):
     return parsed
 
 
-def cairo_path(cr, node):
-    lineWidth = float(node.attr["LineWidth"]) if "LineWidth" in node.attr else 0.5
+layer_draw: DrawParam = DrawParam()
+
+
+def cairo_layer(node):
+    global layer_draw
+    layer_drawparam = node.attr.get("DrawParam", None)
+    if layer_drawparam in DrawParams:
+        layer_draw = DrawParams.get(layer_drawparam)
+        print(layer_draw)
+    else:
+        layer_draw = DrawParam()
+
+
+def cairo_path(cr: cairo.Context, node):
+    lineWidth = layer_draw.line_width if layer_draw.line_width else 0.5
+    lineWidth = float(node.attr["LineWidth"]) if "LineWidth" in node.attr else lineWidth
     boundary = [float(i) for i in node.attr["Boundary"].split(" ")]
     ctm = None
     if "CTM" in node.attr:
         ctm = [float(i) for i in node.attr["CTM"].split(" ")]
-    fillColor = [0, 0, 0]
-    if "FillColor" in node:
-        fillColor = [
-            float(i) / 255.0 for i in node["FillColor"].attr["Value"].split(" ")
-        ]
-    strokeColor = [0, 0, 0]
-    if "StrokeColor" in node:
-        strokeColor = [
-            float(i) / 255.0 for i in node["StrokeColor"].attr["Value"].split(" ")
-        ]
+    fillColor = layer_draw.fill_color
+    if "FillColor" in node and "Value" in node.attr:
+        fillColor = [float(i) / 256.0 for i in node["FillColor"].attr["Value"].split(" ")]
+    using_fill_color = sum(fillColor) > 0.0
+    strokeColor = layer_draw.stroke_color
+    if "StrokeColor" in node and "Value" in node.attr:
+        strokeColor = [float(i) / 256.0 for i in node["StrokeColor"].attr["Value"].split(" ")]
     # print('draw path', boundary, fillColor, strokeColor)
     cr.save()
     if ctm:
@@ -159,14 +237,17 @@ def cairo_path(cr, node):
         cr.translate(boundary[0], boundary[1])
 
     AbbreviatedData = node["AbbreviatedData"].text
-    cr.set_source_rgba(*strokeColor)
+    if using_fill_color:
+        cr.set_source_rgba(*fillColor)
+    else:
+        cr.set_source_rgba(*strokeColor)
     cr.set_line_width(lineWidth)
     _cairo_draw_path(cr, boundary, AbbreviatedData)
     cr.stroke()
     cr.restore()
 
 
-def cairo_text(cr, node):
+def cairo_text(cr: cairo.Context, node):
     boundary = [float(i) for i in node.attr["Boundary"].split(" ")]
     ctm = None
     if "CTM" in node.attr:
@@ -174,17 +255,13 @@ def cairo_text(cr, node):
     font_id = node.attr["Font"]
     font_family = get_font_from_id(font_id).get_font_family()
     font_size = float(node.attr["Size"]) / 1.3
-    fillColor = [0, 0, 0]
-    if "FillColor" in node:
-        fillColor = [
-            float(i) / 255.0 for i in node["FillColor"].attr["Value"].split(" ")
-        ]
+    fillColor = layer_draw.fill_color
+    if "FillColor" in node and "Value" in node["FillColor"].attr:
+        fillColor = [float(i) / 255.0 for i in node["FillColor"].attr["Value"].split(" ")]
 
-    strokeColor = [0, 0, 0]
-    if "StrokeColor" in node:
-        strokeColor = [
-            float(i) / 255.0 for i in node["StrokeColor"].attr["Value"].split(" ")
-        ]
+    strokeColor = layer_draw.stroke_color
+    if "StrokeColor" in node and "Value" in node["StrokeColor"].attr:
+        strokeColor = [float(i) / 255.0 for i in node["StrokeColor"].attr["Value"].split(" ")]
 
     TextCode = node["TextCode"]
     text = TextCode.text
@@ -195,14 +272,18 @@ def cairo_text(cr, node):
     if "DeltaX" in TextCode.attr:
         deltaX = _trans_Delta(TextCode.attr["DeltaX"].split(" "), scale=1)
     if deltaX and len(deltaX) + 1 != len(text):
-        # raise Exception('TextCode DeltaX 与字符个数不符')
+        # raise Exception(f'{text} TextCode DeltaX 与字符个数不符')
         deltaX = deltaX[: len(text) - 1]
+    if deltaX and len(deltaX) < len(text) - 1:
+        deltaX.extend([deltaX[-1]] * (len(text) - 1 - len(deltaX)))
 
     if "DeltaY" in TextCode.attr:
         deltaY = _trans_Delta(TextCode.attr["DeltaY"].split(" "), scale=1)
     if deltaY and len(deltaY) + 1 != len(text):
-        # raise Exception('TextCode DeltaY 与字符个数不符')
+        # raise Exception(f'{text} TextCode DeltaY 与字符个数不符')
         deltaY = deltaY[: len(text) - 1]
+    if deltaY and len(deltaY) < len(text) - 1:
+        deltaY.extend([deltaY[-1]] * (len(text) - 1 - len(deltaY)))
 
     X = float(TextCode.attr["X"])
     Y = float(TextCode.attr["Y"])
@@ -237,7 +318,7 @@ def cairo_text(cr, node):
     pass
 
 
-def cairo_image(cr, node):
+def cairo_image(cr: cairo.Context, node):
     resource_id = node.attr["ResourceID"]
     boundary = [float(i) for i in node.attr["Boundary"].split(" ")]
     ctm = None
@@ -247,7 +328,8 @@ def cairo_image(cr, node):
 
     cr.save()
     x, y = boundary[0], boundary[1]
-    width, height = cr.get_matrix().transform_point(boundary[2], boundary[3])
+    width = cr.get_matrix().xx * boundary[2]
+    height = cr.get_matrix().yy * boundary[3]
     # print('cairo image ctm:', ctm)  # ctm用不到
     x, y = cr.get_matrix().transform_point(x, y)
 
