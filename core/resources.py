@@ -63,6 +63,7 @@ class MultiMedia(object):
         self.ID = node.attr['ID']
         self.Type = node.attr['Type']
         self.location = node['MediaFile'].text
+        self.location.strip('/')
 
     @staticmethod
     def parse_from_node(node):
@@ -107,7 +108,7 @@ class Image(MultiMedia):
 class DrawParam(object):
     def __init__(self, node=None):
         self.ID = node.attr.get('ID', None) if node else None
-        self.line_width = node.attr.get('LineWidth', 0.25) if node else 0.25
+        self.line_width = float(node.attr.get('LineWidth', 0.25)) if node else 0.25
 
         self.stroke_color = next(iter(
             [[float(i) / 256. for i in child.attr['Value'].split(' ')]

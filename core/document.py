@@ -35,6 +35,7 @@ class OFDFile(object):
         # print_node_recursive(self.document_node)
 
     def read_node(self, location):
+        location = location.strip('/')
         document = self.zf.read(location)
         tree = ElementTree.fromstring(document)
         root = cssselect2.ElementWrapper.from_xml_root(tree)
