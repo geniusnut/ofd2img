@@ -7,7 +7,13 @@ import cssselect2
 from defusedxml import ElementTree
 
 from .constants import UNITS
-from .resources import res_add_font, res_add_multimedia, res_add_drawparams, MultiMedias, Images
+from .resources import (
+    res_add_font,
+    res_add_multimedia,
+    res_add_drawparams,
+    MultiMedias,
+    Images,
+)
 from .surface import *
 
 
@@ -15,27 +21,28 @@ class OFDFile(object):
     """
     OFD Ref:GBT_33190-2016_电子文件存储与交换格式版式文档.pdf
     """
+
     #: contains OFD file header data
     header = None
     #: references to document's resources
     resources = None
-    zf:PyZipFile
+    zf: PyZipFile
 
     def __init__(self, fobj):
         self.zf = fobj if isinstance(fobj, PyZipFile) else PyZipFile(fobj)
-        if getattr(fobj, 'filename', None):
-            self.zf.filename = getattr(fobj, 'filename')
+        if getattr(fobj, "filename", None):
+            self.zf.filename = getattr(fobj, "filename")
         # for info in self._zf.infolist():
         #     print(info)
-        self.node_tree = self.read_node('OFD.xml')
+        self.node_tree = self.read_node("OFD.xml")
 
         # parse node
-        self.document_node = self.read_node(self.node_tree['DocBody']['DocRoot'].text)
+        self.document_node = self.read_node(self.node_tree["DocBody"]["DocRoot"].text)
         self.document = OFDDocument(self.zf, self.document_node)
         # print_node_recursive(self.document_node)
 
     def read_node(self, location):
-        location = location.strip('/')
+        location = location.strip("/")
         document = self.zf.read(location)
         tree = ElementTree.fromstring(document)
         root = cssselect2.ElementWrapper.from_xml_root(tree)
@@ -45,7 +52,7 @@ class OFDFile(object):
         document = self.document
         paths = []
         for page in document.pages:
-            surface = Surface(page, os.path.split(self.zf.filename)[-1].strip('.ofd'))
+            surface = Surface(page, os.path.split(self.zf.filename)[-1].strip(".ofd"))
             paths.append(surface.draw(page))
         return paths
 
@@ -54,62 +61,104 @@ class OFDDocument(object):
     def __init__(self, _zf, node, n=0):
         self.pages = []
         self._zf = _zf
-        self.name = f'Doc_{n}'
+        self.name = f"Doc_{n}"
         self.node = node
         try:
-            self.physical_box = [float(i) for i in node['CommonData']['PageArea']['PhysicalBox'].text.split(' ')]
+            self.physical_box = [
+                float(i)
+                for i in node["CommonData"]["PageArea"]["PhysicalBox"].text.split(" ")
+            ]
         except:
             self.physical_box = [0.0, 0.0, 210.0, 140.0]
         self._parse_res()
         # print('Resources:', Fonts, Images)
         # assert len(node['CommonData']['TemplatePage']) == len(node['Pages']['Page'])
-        if isinstance(node['Pages']['Page'], list):
-            sorted_pages = sorted(node['Pages']['Page'], key=lambda x: int(x.attr['ID']))
+        if isinstance(node["Pages"]["Page"], list):
+            sorted_pages = sorted(
+                node["Pages"]["Page"], key=lambda x: int(x.attr["ID"])
+            )
         else:
-            sorted_pages = [node['Pages']['Page']]
+            sorted_pages = [node["Pages"]["Page"]]
         sorted_tpls = []
-        if 'TemplatePage' in node['CommonData']:
-            if isinstance(node['CommonData']['TemplatePage'], list):
-                sorted_tpls = sorted(node['CommonData']['TemplatePage'], key=lambda x: int(x.attr['ID']))
+        if "TemplatePage" in node["CommonData"]:
+            if isinstance(node["CommonData"]["TemplatePage"], list):
+                sorted_tpls = sorted(
+                    node["CommonData"]["TemplatePage"], key=lambda x: int(x.attr["ID"])
+                )
             else:
-                sorted_tpls = [node['CommonData']['TemplatePage']]
+                sorted_tpls = [node["CommonData"]["TemplatePage"]]
 
         seal_node = None
-        if f'{self.name}/Signs/Sign_0/SignedValue.dat' in _zf.namelist():
+        if f"{self.name}/Signs/Sign_0/SignedValue.dat" in _zf.namelist():
             try:
-                seal_file = OFDFile(io.BytesIO(_zf.read(f'{self.name}/Signs/Sign_0/SignedValue.dat')))
+                seal_file = OFDFile(
+                    io.BytesIO(_zf.read(f"{self.name}/Signs/Sign_0/SignedValue.dat"))
+                )
                 seal_node = seal_file.document.pages[0].page_node
             except BadZipFile as _:
-                print(f'BadZipFile: {self.name}/Signs/Sign_0/SignedValue.dat')
+                print(f"BadZipFile: {self.name}/Signs/Sign_0/SignedValue.dat")
 
         annots = None
-        if 'Annotations' in self.node:
-            annots = self.get_node_tree(self.name + '/' + self.node['Annotations'].text)
+        if "Annotations" in self.node:
+            annots = self.get_node_tree(self.name + "/" + self.node["Annotations"].text)
 
         for i, p in enumerate(sorted_pages):
-            page_id = p.attr['ID']
-            page_node = self.get_node_tree(self.name + '/' + sorted_pages[i].attr['BaseLoc'])
+            page_id = p.attr["ID"]
+            page_node = self.get_node_tree(
+                self.name + "/" + sorted_pages[i].attr["BaseLoc"]
+            )
             annot_node = None
             if annots:
-                if isinstance(annots['Page'], list):
-                    annot_page = next(iter([page for page in annots['Page'] if page.attr['PageID'] == page_id]), None)
+                if isinstance(annots["Page"], list):
+                    annot_page = next(
+                        iter(
+                            [
+                                page
+                                for page in annots["Page"]
+                                if page.attr["PageID"] == page_id
+                            ]
+                        ),
+                        None,
+                    )
                     if annot_page:
-                        annot_node = self.get_node_tree(self.name + '/Annots/' + annot_page['FileLoc'].text)
-                elif isinstance(annots['Page'], Node) and annots['Page'].attr['PageID'] == page_id:
-                    annot_node = self.get_node_tree(self.name + '/Annots/' + annots['Page']['FileLoc'].text)
+                        annot_node = self.get_node_tree(
+                            self.name + "/Annots/" + annot_page["FileLoc"].text
+                        )
+                elif (
+                    isinstance(annots["Page"], Node)
+                    and annots["Page"].attr["PageID"] == page_id
+                ):
+                    annot_node = self.get_node_tree(
+                        self.name + "/Annots/" + annots["Page"]["FileLoc"].text
+                    )
             tpl_node = None
             try:
                 # get tpl_node from ID
-                tpl = [tpl for tpl in sorted_tpls if page_node['Template'].attr['TemplateID'] == tpl.attr['ID']][0]
-                tpl_node = self.get_node_tree(self.name + '/' + tpl.attr['BaseLoc'])
+                tpl = [
+                    tpl
+                    for tpl in sorted_tpls
+                    if page_node["Template"].attr["TemplateID"] == tpl.attr["ID"]
+                ][0]
+                tpl_node = self.get_node_tree(self.name + "/" + tpl.attr["BaseLoc"])
             except:
                 pass
             # fallback using sorted one.
             if tpl_node is None and i < len(sorted_tpls):
-                tpl_node = self.get_node_tree(self.name + '/' + sorted_tpls[i].attr['BaseLoc'])
+                tpl_node = self.get_node_tree(
+                    self.name + "/" + sorted_tpls[i].attr["BaseLoc"]
+                )
 
-            self.pages.append(OFDPage(self, f'Page_{i}', page_id, page_node, tpl_node, seal_node if i == 0 else None,
-                                      annot_node=annot_node))
+            self.pages.append(
+                OFDPage(
+                    self,
+                    f"Page_{i}",
+                    page_id,
+                    page_node,
+                    tpl_node,
+                    seal_node if i == 0 else None,
+                    annot_node=annot_node,
+                )
+            )
 
     def get_node_tree(self, location):
         if location not in self._zf.namelist():
@@ -120,12 +169,16 @@ class OFDDocument(object):
         return Node(root)
 
     def _parse_res(self):
-        if 'DocumentRes' in self.node['CommonData']:
-            node = Node.from_zp_location(self._zf, f"{self.name}/{self.node['CommonData']['DocumentRes'].text}")
+        if "DocumentRes" in self.node["CommonData"]:
+            node = Node.from_zp_location(
+                self._zf, f"{self.name}/{self.node['CommonData']['DocumentRes'].text}"
+            )
             self._parse_res_node(node)
 
-        if 'PublicRes' in self.node['CommonData']:
-            node = Node.from_zp_location(self._zf, f"{self.name}/{self.node['CommonData']['PublicRes'].text}")
+        if "PublicRes" in self.node["CommonData"]:
+            node = Node.from_zp_location(
+                self._zf, f"{self.name}/{self.node['CommonData']['PublicRes'].text}"
+            )
             self._parse_res_node(node)
 
     def _parse_res_node(self, node):
@@ -145,13 +198,24 @@ class OFDDocument(object):
 
 class OFDPage(object):
 
-    def __init__(self, parent: OFDDocument, name, page_id, page_node, tpl_node, seal_node=None, annot_node=None):
+    def __init__(
+        self,
+        parent: OFDDocument,
+        name,
+        page_id,
+        page_node,
+        tpl_node,
+        seal_node=None,
+        annot_node=None,
+    ):
         self.parent = parent
         self.page_id = page_id
-        self.name = f'{parent.name}_{name}'
+        self.name = f"{parent.name}_{name}"
         self.physical_box = self.parent.physical_box
-        if 'Area' in page_node and 'PhysicalBox' in page_node['Area']:
-            self.physical_box = [float(i) for i in page_node['Area']['PhysicalBox'].text.split(' ')]
+        if "Area" in page_node and "PhysicalBox" in page_node["Area"]:
+            self.physical_box = [
+                float(i) for i in page_node["Area"]["PhysicalBox"].text.split(" ")
+            ]
         self.tpl_node = tpl_node
         self.page_node = page_node
         self.seal_node = seal_node
@@ -167,7 +231,7 @@ class Surface(object):
 
     @property
     def pixels_per_mm(self):
-        return self.dpi * UNITS['mm']
+        return self.dpi * UNITS["mm"]
 
     def cairo_draw(self, cr, node):
         # Only draw known tags
@@ -180,8 +244,12 @@ class Surface(object):
                 print(traceback.format_exc())
                 pass
             return  # no need to go deeper
-        if node.tag == 'Appearance':
-            boundary = [float(i) for i in node.attr['Boundary'].split(' ')] if 'Boundary' in node.attr else [0, 0, 0, 0]
+        if node.tag == "Appearance":
+            boundary = (
+                [float(i) for i in node.attr["Boundary"].split(" ")]
+                if "Boundary" in node.attr
+                else [0, 0, 0, 0]
+            )
             cr.save()
             cr.translate(boundary[0], boundary[1])
             for child in node.children:
@@ -189,7 +257,7 @@ class Surface(object):
                 self.cairo_draw(cr, child)
             cr.restore()
             return
-        elif node.tag == 'Layer':
+        elif node.tag == "Layer":
             try:
                 cairo_layer(node)
             except Exception as e:
@@ -231,22 +299,22 @@ class Surface(object):
             self.cr.translate(90, 8)
             self.cairo_draw(self.cr, self.page.seal_node)
 
-        path = f'{self.filename}_{page.name}.png'
+        path = f"{self.filename}_{page.name}.png"
         cairo_surface.write_to_png(path)
         cairo_surface.finish()
         return path
 
 
 CAIRO_TAGS = {
-    'PathObject': cairo_path,
-    'TextObject': cairo_text,
-    'ImageObject': cairo_image,
+    "PathObject": cairo_path,
+    "TextObject": cairo_text,
+    "ImageObject": cairo_image,
 }
 
 RESOURCE_TAGS = {
-    'Font': res_add_font,
-    'MultiMedia': res_add_multimedia,
-    'DrawParams': res_add_drawparams,
+    "Font": res_add_font,
+    "MultiMedia": res_add_multimedia,
+    "DrawParams": res_add_drawparams,
 }
 
 
@@ -258,9 +326,11 @@ class Node(dict):
 
         self.children = []
         self.text = node.text
-        self.tag = (element.local_name
-                    if element.namespace_url in ('', 'http://www.ofdspec.org/2016') else
-                    '{%s}%s' % (element.namespace_url, element.local_name))
+        self.tag = (
+            element.local_name
+            if element.namespace_url in ("", "http://www.ofdspec.org/2016")
+            else "{%s}%s" % (element.namespace_url, element.local_name)
+        )
         self.attr = node.attrib
         for child in element.iter_children():
             child_node = Node(child)
@@ -283,10 +353,10 @@ class Node(dict):
         return Node(root)
 
     def __repr__(self):
-        return f'Tag: {self.tag}, Attr: {self.attr}, Text: {self.text}'
+        return f"Tag: {self.tag}, Attr: {self.attr}, Text: {self.text}"
 
 
 def print_node_recursive(node, depth=0):
-    print('  ' * depth, node)
+    print("  " * depth, node)
     for child in node.children:
         print_node_recursive(child, depth=depth + 1)
