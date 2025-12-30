@@ -120,6 +120,13 @@ def _cairo_draw_path(cr, boundary, path):
             y2 = float(elements.pop())
             x3 = float(elements.pop())
             y3 = float(elements.pop())
+            # Apply offset and clipping to all control points
+            x1 = max(0, min(x1, width)) + x_start
+            y1 = max(0, min(y1, height)) + y_start
+            x2 = max(0, min(x2, width)) + x_start
+            y2 = max(0, min(y2, height)) + y_start
+            x3 = max(0, min(x3, width)) + x_start
+            y3 = max(0, min(y3, height)) + y_start
             cr.curve_to(x1, y1, x2, y2, x3, y3)
             current_pos = (x3, y3)
         elif command == "A":
@@ -222,16 +229,16 @@ def cairo_path(cr: cairo.Context, node):
         draw_param_id = node.attr["DrawParam"]
         if draw_param_id in DrawParams:
             draw_param = DrawParams[draw_param_id]
-            print(f"Found DrawParam {draw_param_id}: {draw_param}")
+            # print(f"Found DrawParam {draw_param_id}: {draw_param}")
         else:
             print(
                 f"DrawParam {draw_param_id} not found in DrawParams. Available: {list(DrawParams.keys())}"
             )
 
-    print(f"Using draw_param: {draw_param}")
-    print(f"  - line_width: {draw_param.line_width}")
-    print(f"  - stroke_color: {draw_param.stroke_color}")
-    print(f"  - fill_color: {draw_param.fill_color}")
+    # print(f"Using draw_param: {draw_param}")
+    # print(f"  - line_width: {draw_param.line_width}")
+    # print(f"  - stroke_color: {draw_param.stroke_color}")
+    # print(f"  - fill_color: {draw_param.fill_color}")
 
     lineWidth = draw_param.line_width if draw_param.line_width else 0.5
     lineWidth = float(node.attr["LineWidth"]) if "LineWidth" in node.attr else lineWidth
@@ -260,18 +267,8 @@ def cairo_path(cr: cairo.Context, node):
     ):
         # If DrawParam has a non-black stroke color, enable stroking
         using_stroke = True
-
     print(
-        "draw path",
-        boundary,
-        fillColor,
-        strokeColor,
-        "fill:",
-        using_fill_color,
-        "stroke:",
-        using_stroke,
-        "node:",
-        node.attr,
+        f"draw path boundary: {boundary}, using_fill: {using_fill_color},fillColor: {fillColor}, lineWidth: {lineWidth}, strokeColor: {strokeColor}, using_stroke: {using_stroke}, node: {node.attr}, drawparam: {draw_param}"
     )
     cr.save()
     if ctm:
@@ -291,6 +288,8 @@ def cairo_path(cr: cairo.Context, node):
     # Fill if needed
     if using_fill_color:
         cr.set_source_rgba(*fillColor)
+        # Use even-odd fill rule to avoid filling overlapping subpaths into a solid blob
+        # cr.set_fill_rule(cairo.FILL_RULE_EVEN_ODD)
         cr.fill_preserve()
 
     # Stroke if needed
@@ -386,8 +385,8 @@ def cairo_image(cr: cairo.Context, node):
     ctm = None
     if "CTM" in node.attr:
         ctm = [float(i) for i in node.attr["CTM"].split(" ")]
+    print(f"cairo image ctm: {ctm}, boundary:{boundary}")
     img_surface = get_res_image(resource_id).get_cairo_surface()
-
     cr.save()
     x, y = boundary[0], boundary[1]
     width = cr.get_matrix().xx * boundary[2]
@@ -408,7 +407,6 @@ def cairo_image(cr: cairo.Context, node):
     cr.set_source_surface(img_surface, x, y)
     cr.paint()
     cr.restore()
-    pass
 
 
 def get_font_from_id(font_id):

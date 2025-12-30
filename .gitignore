@@ -1,0 +1,5 @@
+ofds/
+[0-9]*/
+*.png
+*.pyc
+scratch/

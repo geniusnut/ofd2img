@@ -1,0 +1,14 @@
+[project]
+name = "ofd2img"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "cssselect2>=0.8.0",
+    "defusedxml>=0.7.1",
+    "pillow>=12.0.0",
+    "pycairo>=1.29.0",
+    # sudo apt install libgirepository-2.0-dev libcairo2-dev 
+    "pygobject>=3.50.0",
+]
