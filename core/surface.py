@@ -247,11 +247,18 @@ def cairo_path(cr: cairo.Context, node):
     if "CTM" in node.attr:
         ctm = [float(i) for i in node.attr["CTM"].split(" ")]
     fillColor = draw_param.fill_color
-    if "FillColor" in node and "Value" in node["FillColor"].attr:
+    has_explicit_fill_color = "FillColor" in node and "Value" in node["FillColor"].attr
+    if has_explicit_fill_color:
         fillColor = [
             float(i) / 256.0 for i in node["FillColor"].attr["Value"].split(" ")
         ]
     using_fill_color = node.attr.get("Fill", "false").lower() == "true"
+    # If Fill is true but there's no explicit FillColor, prefer stroking when a LineWidth is set
+    if using_fill_color and not has_explicit_fill_color:
+        if "LineWidth" in node.attr:
+            using_fill_color = False
+            # ensure stroke will be used (stroke color from DrawParam may be default black)
+            using_stroke = True
     strokeColor = draw_param.stroke_color
     if "StrokeColor" in node and "Value" in node["StrokeColor"].attr:
         strokeColor = [
@@ -267,9 +274,9 @@ def cairo_path(cr: cairo.Context, node):
     ):
         # If DrawParam has a non-black stroke color, enable stroking
         using_stroke = True
-    print(
-        f"draw path boundary: {boundary}, using_fill: {using_fill_color},fillColor: {fillColor}, lineWidth: {lineWidth}, strokeColor: {strokeColor}, using_stroke: {using_stroke}, node: {node.attr}, drawparam: {draw_param}"
-    )
+    # print(
+    #     f"draw path boundary: {boundary}, using_fill: {using_fill_color},fillColor: {fillColor}, lineWidth: {lineWidth}, strokeColor: {strokeColor}, using_stroke: {using_stroke}, node: {node.attr}, drawparam: {draw_param}"
+    # )
     cr.save()
     if ctm:
         # 如果有ctm，对cr进行的矩阵变换
@@ -293,7 +300,7 @@ def cairo_path(cr: cairo.Context, node):
         cr.fill_preserve()
 
     # Stroke if needed
-    if using_stroke:
+    if using_stroke or lineWidth > 0:
         cr.set_source_rgba(*strokeColor)
         cr.stroke()
     else:
@@ -380,17 +387,23 @@ def cairo_text(cr: cairo.Context, node):
 
 
 def cairo_image(cr: cairo.Context, node):
+    # print("")
     resource_id = node.attr["ResourceID"]
     boundary = [float(i) for i in node.attr["Boundary"].split(" ")]
     ctm = None
     if "CTM" in node.attr:
         ctm = [float(i) for i in node.attr["CTM"].split(" ")]
-    print(f"cairo image ctm: {ctm}, boundary:{boundary}")
     img_surface = get_res_image(resource_id).get_cairo_surface()
     cr.save()
     x, y = boundary[0], boundary[1]
     width = cr.get_matrix().xx * boundary[2]
     height = cr.get_matrix().yy * boundary[3]
+    # print(f"cairo image width: {width}, height: {height}")
+    # print(f"cairo image ctm: {ctm}, boundary:{boundary}")
+    if ctm:
+        x, y = ctm[4] + boundary[0], ctm[5] + boundary[1]
+        width = cr.get_matrix().xx * ctm[0]
+        height = cr.get_matrix().yy * ctm[3]
     # print('cairo image ctm:', ctm)  # ctm用不到
     x, y = cr.get_matrix().transform_point(x, y)
 

@@ -177,7 +177,7 @@ def res_add_font(node, _zf):
 
 def res_add_multimedia(node, _zf):
     if node.attr["Type"] == "Image":
-        print("Adding Image Resource:", node.attr["ID"])
+        # print("Adding Image Resource:", node.attr["ID"])
         image = Image(node, _zf)
         Images[node.attr["ID"]] = image
 
