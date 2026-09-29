@@ -13,7 +13,7 @@ def process_ofd_file(file_path, output_path=None):
     """Process a single OFD file"""
     try:
         doc = OFDFile(file_path)
-        result = doc.draw_document()
+        result = doc.draw_document(output_dir=output_path)
         print(f"✓ Processed: {file_path}")
         if output_path:
             print(f"  Output: {result}")

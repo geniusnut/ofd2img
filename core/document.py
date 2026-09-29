@@ -48,11 +48,15 @@ class OFDFile(object):
         root = cssselect2.ElementWrapper.from_xml_root(tree)
         return Node(root)
 
-    def draw_document(self, doc_num=0):
+    def draw_document(self, doc_num=0, output_dir=None):
         document = self.document
         paths = []
         for page in document.pages:
-            surface = Surface(page, os.path.split(self.zf.filename)[-1].strip(".ofd"))
+            surface = Surface(
+                page,
+                os.path.split(self.zf.filename)[-1].replace(".ofd", ""),
+                output_dir=output_dir,
+            )
             paths.append(surface.draw(page))
         return paths
 
@@ -224,10 +228,11 @@ class OFDPage(object):
 
 class Surface(object):
 
-    def __init__(self, page, name, dpi=192):
+    def __init__(self, page, name, dpi=192, output_dir=None):
         self.page = page
         self.dpi = dpi
         self.filename = name
+        self.output_dir = output_dir
 
     @property
     def pixels_per_mm(self):
@@ -300,6 +305,8 @@ class Surface(object):
             self.cairo_draw(self.cr, self.page.seal_node)
 
         path = f"{self.filename}_{page.name}.png"
+        if self.output_dir:
+            path = os.path.join(self.output_dir, path)
         cairo_surface.write_to_png(path)
         cairo_surface.finish()
         return path

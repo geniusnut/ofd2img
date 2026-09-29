@@ -78,13 +78,9 @@ def _draw_AbbreviatedData(
             pass
 
 
-def _cairo_draw_path(cr, boundary, path):
-    x_start = boundary[0]
-    y_start = boundary[1]
-    width = boundary[2]
-    height = boundary[3]
-    current_pos = (x_start, y_start)
-    # cr.translate(x_start, y_start)
+def _cairo_draw_path(draw, path):
+    current_pos = (0, 0)
+
     elements = list(_tokenize_path(path))
     elements.reverse()
 
@@ -98,20 +94,13 @@ def _cairo_draw_path(cr, boundary, path):
         if command == "M":
             x = float(elements.pop())
             y = float(elements.pop())
-            # Clip coordinates to boundary and apply offset
-            x = max(0, min(x, width)) + x_start
-            y = max(0, min(y, height)) + y_start
-            cr.move_to(x, y)
+            draw.move_to(x, y)
             current_pos = (x, y)
         elif command == "L":
             x = float(elements.pop())
             y = float(elements.pop())
-            # Clip coordinates to boundary and apply offset
-            x = max(0, min(x, width)) + x_start
-            y = max(0, min(y, height)) + y_start
-            cr.line_to(x, y)
+            draw.line_to(x, y)
             current_pos = (x, y)
-            # draw.line(current_pos + pos, fill=fillColor, width=lineWidth)
 
         elif command == "B":
             x1 = float(elements.pop())
@@ -120,14 +109,7 @@ def _cairo_draw_path(cr, boundary, path):
             y2 = float(elements.pop())
             x3 = float(elements.pop())
             y3 = float(elements.pop())
-            # Apply offset and clipping to all control points
-            x1 = max(0, min(x1, width)) + x_start
-            y1 = max(0, min(y1, height)) + y_start
-            x2 = max(0, min(x2, width)) + x_start
-            y2 = max(0, min(y2, height)) + y_start
-            x3 = max(0, min(x3, width)) + x_start
-            y3 = max(0, min(y3, height)) + y_start
-            cr.curve_to(x1, y1, x2, y2, x3, y3)
+            draw.curve_to(x1, y1, x2, y2, x3, y3)
             current_pos = (x3, y3)
         elif command == "A":
             # rx ry x-axis-rotation large-arc-flag sweep-flag x y
@@ -188,10 +170,36 @@ def _cairo_draw_path(cr, boundary, path):
             y1 = float(elements.pop())
             x2 = float(elements.pop())
             y2 = float(elements.pop())
-            cr.curve_to(x1, y1, x1, y1, x2, y2)
+            draw.curve_to(x1, y1, x1, y1, x2, y2)
             current_pos = (x2, y2)
         elif command == "C":
-            pass
+            # OFD: C = 关闭路径 (closepath), NOT a cubic curve
+            draw.close_path()
+
+
+PT2MM = 25.4 / 72.0  # 0.3528mm per point
+
+
+def _path_bbox(path):
+    """Rough bbox of a path in local units (good enough for unit detection)."""
+    tokens = list(_tokenize_path(path))
+    xs, ys = [], []
+    i = 0
+    while i + 1 < len(tokens):
+        t = tokens[i]
+        if t in COMMANDS:
+            i += 1
+            continue
+        try:
+            xs.append(float(t))
+            ys.append(float(tokens[i + 1]))
+        except ValueError:
+            i += 1
+            continue
+        i += 2
+    if not xs:
+        return 0.0, 0.0, 0.0, 0.0
+    return min(xs), min(ys), max(xs) - min(xs), max(ys) - min(ys)
 
 
 def _trans_Delta(elements, scale=SCALE_192):
@@ -253,6 +261,7 @@ def cairo_path(cr: cairo.Context, node):
             float(i) / 256.0 for i in node["FillColor"].attr["Value"].split(" ")
         ]
     using_fill_color = node.attr.get("Fill", "false").lower() == "true"
+    using_stroke = node.attr.get("Stroke", "false").lower() == "true"
     # If Fill is true but there's no explicit FillColor, prefer stroking when a LineWidth is set
     if using_fill_color and not has_explicit_fill_color:
         if "LineWidth" in node.attr:
@@ -264,43 +273,53 @@ def cairo_path(cr: cairo.Context, node):
         strokeColor = [
             float(i) / 256.0 for i in node["StrokeColor"].attr["Value"].split(" ")
         ]
-    # If Stroke attribute is not explicitly set in node, use DrawParam's stroke color
-    # If strokeColor is not [0, 0, 0] (black/default), then we should stroke
-    using_stroke = node.attr.get("Stroke", "false").lower() == "true"
-    if (
-        not using_stroke
-        and draw_param.stroke_color
-        and draw_param.stroke_color != [0, 0, 0]
-    ):
-        # If DrawParam has a non-black stroke color, enable stroking
-        using_stroke = True
     # print(
     #     f"draw path boundary: {boundary}, using_fill: {using_fill_color},fillColor: {fillColor}, lineWidth: {lineWidth}, strokeColor: {strokeColor}, using_stroke: {using_stroke}, node: {node.attr}, drawparam: {draw_param}"
     # )
     cr.save()
+    # OFD geometry: page_point = CTM x path_coord + boundary_origin
     if ctm:
-        # 如果有ctm，对cr进行的矩阵变换
-        # print('cairo path ctm:', ctm)
-        ctm_matrix = cairo.Matrix(*ctm)
-        matrix = cr.get_matrix().multiply(ctm_matrix)
-        cr.set_matrix(matrix)
-        ctm_matrix.invert()
-        cr.translate(*ctm_matrix.transform_point(boundary[0], boundary[1]))
-    # Don't translate here since we apply offset in _cairo_draw_path
+        m = cairo.Matrix(
+            ctm[0],
+            ctm[1],
+            ctm[2],
+            ctm[3],
+            ctm[4] + boundary[0],
+            ctm[5] + boundary[1],
+        )
+        # pycairo: A.multiply(B) == "apply A first, then B"
+        # -> we need "apply m (local->page mm) first, then S (mm->device px)"
+        cr.set_matrix(m.multiply(cr.get_matrix()))
+    else:
+        cr.translate(boundary[0], boundary[1])
+        # Some generators emit no-CTM paths in POINTS instead of mm (e.g. the
+        # CESA air-ticket grid: Boundary is mm but path len is ~2.83x larger).
+        # Detect via bbox overflow and scale down; Boundary stays in mm.
+        px, py, pw, ph = _path_bbox(node["AbbreviatedData"].text or "")
+        tol = 2 * lineWidth
+        overflow = pw > boundary[2] + tol or ph > boundary[3] + tol
+        fits = (
+            pw * PT2MM <= boundary[2] + tol and ph * PT2MM <= boundary[3] + tol
+        )
+        if overflow and fits:
+            # ponytail: assumes uniform pt-based coords; per-axis units would
+            # need a smarter fit
+            cr.scale(PT2MM, PT2MM)
 
     AbbreviatedData = node["AbbreviatedData"].text
     cr.set_line_width(lineWidth)
-    _cairo_draw_path(cr, boundary, AbbreviatedData)
+    _cairo_draw_path(cr, AbbreviatedData)
 
     # Fill if needed
     if using_fill_color:
         cr.set_source_rgba(*fillColor)
-        # Use even-odd fill rule to avoid filling overlapping subpaths into a solid blob
-        # cr.set_fill_rule(cairo.FILL_RULE_EVEN_ODD)
         cr.fill_preserve()
 
-    # Stroke if needed
-    if using_stroke or lineWidth > 0:
+    # Stroke when requested, when the object carries an explicit StrokeColor,
+    # or when the path is a pure line (no fill at all) - generators omit
+    # Stroke="true" and rely on the default stroked rendering
+    explicit_stroke_color = "StrokeColor" in node and "Value" in node["StrokeColor"].attr
+    if using_stroke or explicit_stroke_color or not using_fill_color:
         cr.set_source_rgba(*strokeColor)
         cr.stroke()
     else:
@@ -330,20 +349,27 @@ def cairo_text(cr: cairo.Context, node):
 
     TextCode = node["TextCode"]
     text = TextCode.text
+    if not text:  # empty placeholder TextCode, nothing to draw
+        return
     # print(f'cario text {text}, {font_id}')
 
     deltaX = None
     deltaY = None
     if "DeltaX" in TextCode.attr:
-        deltaX = _trans_Delta(TextCode.attr["DeltaX"].split(" "), scale=1)
-    if deltaX and len(deltaX) + 1 != len(text):
+        parts = [e for e in TextCode.attr["DeltaX"].split(" ") if e]
+        deltaX = _trans_Delta(parts, scale=1) if parts else None
+    leading = (
+        deltaX is not None and len(deltaX) == len(text) and len(text) > 1
+    )  # one DeltaX per char: first value = width of a hidden leading glyph
+    if deltaX and not leading and len(deltaX) + 1 != len(text):
         # raise Exception(f'{text} TextCode DeltaX 与字符个数不符')
         deltaX = deltaX[: len(text) - 1]
-    if deltaX and len(deltaX) < len(text) - 1:
+    if deltaX and not leading and len(deltaX) < len(text) - 1:
         deltaX.extend([deltaX[-1]] * (len(text) - 1 - len(deltaX)))
 
     if "DeltaY" in TextCode.attr:
-        deltaY = _trans_Delta(TextCode.attr["DeltaY"].split(" "), scale=1)
+        parts = [e for e in TextCode.attr["DeltaY"].split(" ") if e]
+        deltaY = _trans_Delta(parts, scale=1) if parts else None
     if deltaY and len(deltaY) + 1 != len(text):
         # raise Exception(f'{text} TextCode DeltaY 与字符个数不符')
         deltaY = deltaY[: len(text) - 1]
@@ -370,7 +396,7 @@ def cairo_text(cr: cairo.Context, node):
         baseline = layout.get_baseline() / Pango.SCALE
         # print(f'{rune}, baseline: {baseline}, X:{X}, Y:{Y} Boundary:{boundary}')
 
-        offset_x = sum(deltaX[:idx]) if deltaX else 0
+        offset_x = sum(deltaX[: idx + 1]) if leading else (sum(deltaX[:idx]) if deltaX else 0)
         offset_y = sum(deltaY[:idx]) if deltaY else 0
         # cr.move_to(boundary[0] + offset_x, boundary[1] + offset_y)
         cr.move_to(boundary[0], boundary[1])

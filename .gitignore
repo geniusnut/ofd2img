@@ -1,5 +1,8 @@
 ofds/
 [0-9]*/
 *.png
+*.jpg
+*.zip
+*.ofd
 *.pyc
 scratch/

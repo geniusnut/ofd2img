@@ -20,7 +20,7 @@ def convert():
     paths = doc.draw_document()
     print(paths)
     d = {'data': ''}
-    zip_path = storage.filename.strip('.ofd') + '.zip'
+    zip_path = storage.filename.replace('.ofd', '') + '.zip'
     print(zip_path)
     zipf = zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED)
     for path in paths:
